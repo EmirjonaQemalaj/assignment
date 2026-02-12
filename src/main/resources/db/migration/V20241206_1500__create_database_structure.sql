@@ -1,0 +1,22 @@
+CREATE TABLE users
+(
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'USER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE urls
+(
+    id BIGSERIAL PRIMARY KEY,
+    long_url VARCHAR(2048) NOT NULL,
+    short_code VARCHAR(32) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    click_count BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_long_url ON urls(long_url);
+CREATE INDEX idx_expires_at ON urls(expires_at);
