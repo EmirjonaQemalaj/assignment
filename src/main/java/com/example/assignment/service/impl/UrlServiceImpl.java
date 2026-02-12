@@ -1,15 +1,13 @@
 package com.example.assignment.service.impl;
 
+import com.example.assignment.exceptions.InvalidInputException;
 import com.example.assignment.persistence.entity.Url;
 import com.example.assignment.persistence.repository.UrlRepository;
-import com.example.assignment.rest.dto.ShortenUrlRequest;
-import com.example.assignment.rest.dto.ShortenUrlResponse;
-import com.example.assignment.rest.dto.UrlStatsResponse;
 import com.example.assignment.service.UrlService;
-import com.example.assignment.tools.CodeGenerator;
 import jakarta.transaction.Transactional;
-import java.net.URI;
 import java.time.LocalDateTime;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,141 +15,77 @@ import org.springframework.stereotype.Service;
 @Transactional
 public class UrlServiceImpl implements UrlService {
 
-    private final UrlRepository repository;
-    private final CodeGenerator generator;
+    private static final String URL_NOT_FOUND = "Short URL not found";
 
-    private final long defaultExpirationMinutes;
+    private final UrlRepository urlRepository;
 
-    public UrlServiceImpl(
-            UrlRepository repository,
-            CodeGenerator generator,
-            @Value("${app.url.expiration-minutes:5}")
-            long defaultExpirationMinutes) {
-        this.repository = repository;
-        this.generator = generator;
-        this.defaultExpirationMinutes = defaultExpirationMinutes;
+    @Value("${url.expiration.minutes:5}")
+    private long expirationMinutes;
+
+    public UrlServiceImpl(UrlRepository urlRepository) {
+        this.urlRepository = urlRepository;
     }
 
-    @Override
-    public ShortenUrlResponse shorten(ShortenUrlRequest request, String baseUrl) {
-        String longUrl = normalizeUrl(request.getLongUrl());
+    public String processUrl(String inputUrl) {
 
-        long minutes =
-                (request.getExpirationMinutes() != null) ? request.getExpirationMinutes() : defaultExpirationMinutes;
+//        urlRepository.deleteByExpirationTimeBefore(LocalDateTime.now());
 
-        if (minutes <= 0) {
-            throw new IllegalArgumentException("expirationMinutes must be > 0");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime newExpiry = now.plusMinutes(minutes);
-
-        var existingOpt = repository.findFirstByLongUrlOrderByExpiresAtDesc(longUrl);
-
-        if (existingOpt.isPresent()) {
-            Url existing = existingOpt.get();
-
-            if (existing.getExpiresAt().isAfter(now)) {
-                existing.setExpiresAt(newExpiry);
-                return toResponse(existing, baseUrl);
-            }
-        }
-
-        Url created = new Url();
-        created.setLongUrl(longUrl);
-        created.setExpiresAt(newExpiry);
-
-        created.setShortCode(generateUniqueCode());
-
-        repository.save(created);
-
-        return toResponse(created, baseUrl);
-    }
-
-    @Override
-    public String resolveAndCount(String shortCode) {
-        LocalDateTime now = LocalDateTime.now();
-
-        Url mapping = repository.findByShortCode(shortCode)
-                .orElseThrow(() -> new RuntimeException("Short URL not found"));
-
-        if (!mapping.getExpiresAt().isAfter(now)) {
-            throw new RuntimeException("Short URL expired");
-        }
-
-        mapping.setClickCount(mapping.getClickCount() + 1);
-
-        return mapping.getLongUrl();
-    }
-
-    @Override
-    public UrlStatsResponse getStats(String shortCode) {
-        Url mapping = repository.findByShortCode(shortCode)
-                .orElseThrow(() -> new RuntimeException("Short URL not found"));
-
-        UrlStatsResponse resp = new UrlStatsResponse();
-        resp.setLongUrl(mapping.getLongUrl());
-        resp.setShortCode(mapping.getShortCode());
-        resp.setClickCount(mapping.getClickCount());
-        resp.setExpiresAt(mapping.getExpiresAt());
-        return resp;
-    }
-
-    @Override
-    public UrlStatsResponse overwriteExpiration(String shortCode, long expirationMinutes) {
-        if (expirationMinutes <= 0) {
-            throw new IllegalArgumentException("expirationMinutes must be > 0");
-        }
-
-        Url mapping = repository.findByShortCode(shortCode)
-                .orElseThrow(() -> new RuntimeException("Short URL not found"));
-
-        mapping.setExpiresAt(LocalDateTime.now().plusMinutes(expirationMinutes));
-
-        UrlStatsResponse resp = new UrlStatsResponse();
-        resp.setLongUrl(mapping.getLongUrl());
-        resp.setShortCode(mapping.getShortCode());
-        resp.setClickCount(mapping.getClickCount());
-        resp.setExpiresAt(mapping.getExpiresAt());
-        return resp;
-    }
-
-    private String generateUniqueCode() {
-        for (int i = 0; i < 10; i++) {
-            String code = generator.generate();
-            if (!repository.existsByShortCode(code)) {
-                return code;
-            }
-        }
-        throw new RuntimeException("Failed to generate unique short code");
-    }
-
-    private ShortenUrlResponse toResponse(Url mapping, String baseUrl) {
-        ShortenUrlResponse resp = new ShortenUrlResponse();
-        resp.setLongUrl(mapping.getLongUrl());
-        resp.setShortCode(mapping.getShortCode());
-        resp.setShortUrl(baseUrl + "/" + mapping.getShortCode());
-        resp.setExpiresAt(mapping.getExpiresAt());
-        return resp;
-    }
-
-    private String normalizeUrl(String url) {
-        if (url == null || url.isBlank()) {
-            throw new IllegalArgumentException("longUrl is required");
-        }
-
-        String trimmed = url.trim();
-
-        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-            trimmed = "https://" + trimmed;
-        }
-
+        boolean isShort;
         try {
-            URI.create(trimmed);
+            new java.net.URL(inputUrl);
+            isShort = false;
         } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid URL format");
+            isShort = true;
         }
 
-        return trimmed;
+        if (isShort) {
+            Optional<Url> optional = urlRepository.findByShortCode(inputUrl);
+            if (optional.isEmpty()) {
+                throw new InvalidInputException(URL_NOT_FOUND);
+            }
+
+            Url mapping = optional.get();
+            if (mapping.getExpiresAt().isBefore(LocalDateTime.now())) {
+                urlRepository.delete(mapping);
+                throw new InvalidInputException(URL_NOT_FOUND);
+            }
+
+            mapping.setClickCount(mapping.getClickCount() + 1);
+            urlRepository.save(mapping);
+            return mapping.getLongUrl();
+        }
+
+        Optional<Url> existing = urlRepository.findByLongUrl(inputUrl);
+
+        if (existing.isPresent()) {
+            Url mapping = existing.get();
+
+            if (mapping.getExpiresAt().isAfter(LocalDateTime.now())) {
+                mapping.setExpiresAt(LocalDateTime.now().plusMinutes(expirationMinutes));
+                urlRepository.save(mapping);
+                return mapping.getShortCode();
+            }
+            urlRepository.delete(mapping);
+        }
+
+        String shortUrl = generateUniqueShortUrl();
+
+        Url newMapping = new Url();
+        newMapping.setLongUrl(inputUrl);
+        newMapping.setShortCode(shortUrl);
+        newMapping.setClickCount(0L);
+        newMapping.setExpiresAt(LocalDateTime.now().plusMinutes(expirationMinutes));
+
+        urlRepository.save(newMapping);
+
+        return shortUrl;
+    }
+
+    private String generateUniqueShortUrl() {
+        String shortUrl;
+        do {
+            shortUrl = UUID.randomUUID().toString().substring(0, 8);
+        } while (urlRepository.findByShortCode(shortUrl).isPresent());
+        return shortUrl;
     }
 }

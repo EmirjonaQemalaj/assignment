@@ -20,6 +20,6 @@ public class ExpirationScheduler {
     @Scheduled(fixedDelay = 60000)
     @Transactional
     public void deleteExpired() {
-        repository.deleteExpired(LocalDateTime.now());
+        repository.deleteByExpiresAtBefore(LocalDateTime.now());
     }
 }
