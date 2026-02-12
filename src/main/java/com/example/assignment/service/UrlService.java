@@ -3,7 +3,6 @@ package com.example.assignment.service;
 import com.example.assignment.rest.dto.ShortenUrlRequest;
 import com.example.assignment.rest.dto.ShortenUrlResponse;
 import com.example.assignment.rest.dto.UrlStatsResponse;
-import java.util.List;
 
 public interface UrlService {
 

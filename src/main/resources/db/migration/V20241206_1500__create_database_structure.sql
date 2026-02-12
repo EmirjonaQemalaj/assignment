@@ -1,4 +1,4 @@
-CREATE TABLE users
+CREATE TABLE IF NOT EXISTS users
 (
     id BIGSERIAL PRIMARY KEY,
     username VARCHAR(100) NOT NULL UNIQUE,
@@ -7,7 +7,7 @@ CREATE TABLE users
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE urls
+CREATE TABLE IF NOT EXISTS urls
 (
     id BIGSERIAL PRIMARY KEY,
     long_url VARCHAR(2048) NOT NULL,
@@ -18,5 +18,8 @@ CREATE TABLE urls
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_long_url ON urls(long_url);
-CREATE INDEX idx_expires_at ON urls(expires_at);
+CREATE INDEX IF NOT EXISTS idx_long_url ON urls(long_url);
+CREATE INDEX IF NOT EXISTS idx_expires_at ON urls(expires_at);
+
+INSERT INTO users(username, password, role)
+VALUES('user', '$2a$10$Dow1jS3YpE3eF0k', 'USER');
